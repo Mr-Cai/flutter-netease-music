@@ -1,224 +1,297 @@
-import 'dart:async';
-import 'dart:convert';
-
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/widgets.dart';
-import 'package:meta/meta.dart';
-import 'package:overlay_support/overlay_support.dart';
-import 'package:quiet/component/player/lryic.dart';
 import 'package:quiet/model/model.dart';
-import 'package:quiet/service/channel_media_player.dart';
 import 'package:scoped_model/scoped_model.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:audio_service/audio_service.dart' as a;
+import 'lryic.dart';
+import 'play_list.dart';
+import 'player_state.dart';
+import 'package:overlay_support/overlay_support.dart';
 
-export 'package:quiet/component/player/bottom_player_bar.dart';
-export 'package:quiet/component/player/lryic.dart';
+export 'bottom_player_bar.dart';
+export 'lryic.dart';
+export 'player_state.dart';
 
-MusicPlayer quiet = MusicPlayer._private();
-
-///key which save playing music to local preference
-const String _PREF_KEY_PLAYING = "quiet_player_playing";
-
-///key which save playing music list to local preference
-const String _PREF_KEY_PLAYLIST = "quiet_player_playlist";
-
-///key which save playing list token to local preference
-const String _PREF_KEY_TOKEN = "quiet_player_token";
-
-///key which save playing mode to local preference
-const String _PREF_KEY_PLAY_MODE = "quiet_player_play_mode";
-
-class MusicPlayer implements ValueNotifier<PlayerControllerState> {
-  MusicPlayer._private() : super() {
-    () async {
-      //load former player information from SharedPreference
-      var preference = await SharedPreferences.getInstance();
-      Music current;
-      List<Music> playingList;
-      String token;
-      PlayMode playMode;
-      try {
-        current = Music.fromMap(json.decode(preference.get(_PREF_KEY_PLAYING)));
-        token = preference.get(_PREF_KEY_TOKEN);
-        playingList = (json.decode(preference.get(_PREF_KEY_PLAYLIST)) as List)
-            .cast<Map>()
-            .map(Music.fromMap)
-            .toList();
-        playMode = PlayMode.values[preference.getInt(_PREF_KEY_PLAY_MODE) ?? 0];
-      } catch (e) {
-        debugPrint(e.toString());
-      }
-
-      debugPrint("loaded : $current");
-      debugPrint("loaded : $playingList");
-      debugPrint("loaded : $token");
-      debugPrint("loaded : $playMode");
-
-      //save player info to SharedPreference
-      addListener(() {
-        if (current != value.current) {
-          preference.setString(_PREF_KEY_PLAYING,
-              json.encode(value.current, toEncodable: (e) => e.toMap()));
-          current = value.current;
-        }
-        if (playingList != value.playingList) {
-          preference.setString(_PREF_KEY_PLAYLIST,
-              json.encode(value.playingList, toEncodable: (e) => e.toMap()));
-          playingList = value.playingList;
-        }
-        if (playMode != value.playMode) {
-          preference.setInt(_PREF_KEY_PLAY_MODE, value.playMode.index);
-          playMode = value.playMode;
-        }
-        if (token != value.token) {
-          preference.setString(_PREF_KEY_TOKEN, value.token);
-          token = value.token;
-        }
-      });
-      _controller.init(
-          playingList, current, token, playMode ?? PlayMode.sequence);
-    }();
+abstract class PlayerControl<T> {
+  static PlayerControl<Music> of(BuildContext context) {
+    return PlayerController.control(context);
   }
 
-  PlayerController get _controller => quietPlayerController;
+  /// [item] music item
+  void play(T item);
 
-  ///play a single song
-  Future<void> play({Music music}) async {
-    music = music ?? value.current;
-    if (music == null) {
-      //null music, null current playing, this is an error state
-      return;
-    }
-    if (!value.playingList.contains(music)) {
-      //playing list do not contain music
-      //so we insert this music to next of current playing
-      await insertToNext(music);
-    }
-    await _performPlay(music);
+  void pause();
+
+  void skipToNext();
+
+  void skipToPrevious();
+
+  void setPlayMode(PlayMode playMode);
+
+  //set current playlist
+  void setPlayList(List<T> list);
+
+  void quiet();
+}
+
+PlaybackState _stateAdapter(a.PlaybackState state) {
+  switch (state.basicState) {
+    case a.BasicPlaybackState.none:
+      return PlaybackState.none;
+    case a.BasicPlaybackState.error:
+    case a.BasicPlaybackState.stopped:
+      return PlaybackState.ended;
+    case a.BasicPlaybackState.paused:
+    case a.BasicPlaybackState.playing:
+      return PlaybackState.ready;
+    case a.BasicPlaybackState.fastForwarding:
+    case a.BasicPlaybackState.rewinding:
+    case a.BasicPlaybackState.connecting:
+    case a.BasicPlaybackState.buffering:
+      return PlaybackState.buffering;
+    case a.BasicPlaybackState.skippingToPrevious:
+    case a.BasicPlaybackState.skippingToNext:
+    case a.BasicPlaybackState.skippingToQueueItem:
+      return null;
+  }
+  return null;
+}
+
+class PlayerController extends Model implements PlayerControl<Music> {
+  var _state = PlayerControllerState.uninitialized();
+
+  PlayerControllerState get value => _state;
+
+  PlayerController() {
+    a.AudioService.start(
+      backgroundTask: _startMusicPlayerService,
+      resumeOnClick: true,
+      androidNotificationChannelName: 'Audio Service Demo',
+      notificationColor: 0xFF2196f3,
+      androidNotificationIcon: 'mipmap/ic_launcher',
+    );
+    a.AudioService.connect();
+    a.AudioService.playbackStateStream.listen((state) {
+      _state = _state.copyWith(
+        playbackState: _stateAdapter(state),
+        position: Duration(milliseconds: state.currentPosition),
+      );
+      notifyListeners();
+    });
+    a.AudioService.currentMediaItemStream.listen((item) {
+      _state = _state.copyWith(current: _adapterToMusic(item));
+    });
+    a.AudioService.queueStream.listen((queue) {
+      //do nothing yet
+    });
   }
 
-  ///insert a music to [value.current] next position
-  Future<void> insertToNext(Music music) {
-    return insertToNext2([music]);
+  static PlayerControllerState state(BuildContext context, {bool rebuildOnChange: true}) {
+    final controller = of(context, rebuildOnChange: rebuildOnChange);
+    return controller._state;
   }
 
-  Future<void> insertToNext2(List<Music> list) async {
-    final playingList = List.of(value.playingList);
-    playingList.removeWhere((m) => list.contains(m));
-
-    final index = playingList.indexOf(value.current) + 1;
-    playingList.insertAll(index, list);
-    await _controller.updatePlaylist(playingList, value.token);
+  static PlayerControl<Music> control(BuildContext context) {
+    return of(context, rebuildOnChange: false);
   }
 
-  Future<void> removeFromPlayingList(Music music) async {
-    if (!value.playingList.contains(music)) {
-      return;
-    }
-    final list = List.of(value.playingList);
-    list.remove(music);
-    await _controller.updatePlaylist(list, value.token);
+  static PlayerController of(BuildContext context, {bool rebuildOnChange: false}) {
+    return ScopedModel.of<PlayerController>(context, rebuildOnChange: rebuildOnChange);
   }
 
-  Future<void> playWithList(Music music, List<Music> list, String token) async {
-    debugPrint("playWithList ${list.map((m) => m.title).join(",")}");
-    debugPrint("playWithList token = $token");
-    assert(list != null && token != null);
-    if (list.isEmpty) {
-      return;
-    }
-    if (music == null) {
-      music = list.first;
-    }
-    await _controller.updatePlaylist(list, token);
-    await _controller.playWith(music);
+  @override
+  void pause() {
+    a.AudioService.pause();
   }
 
-  //perform to play music
-  Future<void> _performPlay(Music music) async {
-    assert(music != null);
-
-    if (value.current == music &&
-        _controller.value.playbackState != PlaybackState.none) {
-      return await _controller.setPlayWhenReady(true);
-    }
-    assert(
-        music.url != null && music.url.isNotEmpty, "music url can not be null");
-    return await _controller.playWith(music);
+  @override
+  void play(Music item) {
+    a.AudioService.playFromMediaId(item.id.toString());
   }
 
-  Future<void> pause() {
-    return _controller.setPlayWhenReady(false);
+  @override
+  void skipToNext() {
+    a.AudioService.skipToNext();
   }
 
+  @override
+  void skipToPrevious() {
+    a.AudioService.skipToPrevious();
+  }
+
+  @override
+  void setPlayMode(PlayMode playMode) {
+    a.AudioService.customAction(_actionPlayMode, playMode.index);
+    _state = _state.copyWith(playMode: playMode);
+    notifyListeners();
+  }
+
+  @override
+  void setPlayList(List<Music> list) {
+    _state = _state.copyWith(playingList: list);
+    a.AudioService.customAction(_actionPlayList, list.map((m) => m.toMap()).toList());
+  }
+
+  Music _adapterToMusic(a.MediaItem item) {
+    assert(_state.playingList.isNotEmpty, "can not adapter $item to music because current playing list is emtpy");
+    return _state.playingList.firstWhere((music) => music.id.toString() == item.id);
+  }
+
+  @override
   void quiet() {
-    _controller.dispose();
+    a.AudioService.stop();
   }
 
-  Future<void> playNext() async {
-    await _controller.playNext();
+  void seekTo(int round) {
+    //TODO
   }
 
-  Future<void> playPrevious() async {
-    await _controller.playPrevious();
+  Music getPrevious() {
+    //TODO
+    return null;
   }
 
-  ///might be null
-  Future<Music> getNext() {
-    return _controller.getNext();
+  Music getNext() {
+    //TODO
+    return null;
+  }
+}
+
+const _actionPlayMode = "changePlayMode";
+
+const _actionPlayList = "changePlayList";
+
+// Start MusicPlayer in background.
+void _startMusicPlayerService() async {
+  final player = _Player();
+  a.AudioServiceBackground.run(
+      onStart: player.startService,
+      onStop: player.quiet,
+      onPlayFromMediaId: (String id) {
+        assert(player.items.isNotEmpty, "we can not perform play for $id, since playList still empty now!");
+        var item = player.items.firstWhere((item) => item.id == id);
+        if (item == null) {
+          debugPrint("can not find $id in playlist");
+          item = player.items.first;
+        }
+        player.play(item);
+      },
+      onPause: player.pause,
+      onCustomAction: (action, arg) {
+        switch (action) {
+          case _actionPlayMode:
+            player.setPlayMode(PlayMode.values[arg]);
+            break;
+          case _actionPlayList:
+            final musics = (arg as List).cast<Map>().map(Music.fromMap);
+            final items = musics.map(_adapterToMediaItem).toList();
+            player.setPlayList(items);
+            break;
+          default:
+            throw "can not perform action : $action";
+        }
+      },
+      onLoadChildren: (path) async {
+        return player.items;
+      });
+}
+
+a.MediaItem _adapterToMediaItem(Music music) {
+  return a.MediaItem(
+    id: music.id.toString(),
+    album: music.album.name,
+    title: music.title,
+    artist: music.artistString,
+    displayTitle: music.title,
+    displaySubtitle: music.subTitle,
+  );
+}
+
+class _Player with ShufflePlayList<a.MediaItem> implements PlayerControl<a.MediaItem> {
+  // Start Player Service
+  Future startService() {
+    _audioPlayer.onPlayerStateChanged.listen((state) {
+      var basicState = a.BasicPlaybackState.none;
+      switch (state) {
+        case AudioPlayerState.STOPPED:
+          basicState = a.BasicPlaybackState.stopped;
+          break;
+        case AudioPlayerState.PLAYING:
+          basicState = a.BasicPlaybackState.playing;
+          break;
+        case AudioPlayerState.PAUSED:
+          basicState = a.BasicPlaybackState.paused;
+          break;
+        case AudioPlayerState.COMPLETED:
+          basicState = a.BasicPlaybackState.paused;
+          break;
+      }
+      a.AudioServiceBackground.setState(basicState: basicState, controls: [
+        a.MediaControl(
+            action: a.MediaAction.skipToPrevious,
+            label: 'skipToPrevious',
+            androidIcon: "drawable/ic_skip_previous_black_24dp"),
+        a.MediaControl(
+          action: a.MediaAction.skipToNext,
+          label: 'skipToNext',
+          androidIcon: "drawable/ic_skip_next_black_24dp",
+        ),
+      ]);
+    });
+
+    _audioPlayer.getCurrentPosition();
+    //FIXME
+    return Future.delayed(Duration(days: 0xFFFFFFFF));
   }
 
-  ///might be null
-  Future<Music> getPrevious() {
-    return _controller.getPrevious();
-  }
+  final AudioPlayer _audioPlayer = AudioPlayer();
 
-  ///seek to position in milliseconds
-  Future<void> seekTo(int position) {
-    return _controller.seekTo(position);
-  }
+  a.MediaItem _current;
 
-  Future<void> setVolume(double volume) {
-    return _controller.setVolume(volume);
-  }
-
-  ///change playlist play mode
-  ///[PlayMode]
-  Future<void> changePlayMode() {
-    PlayMode next = PlayMode.values[(value.playMode.index + 1) % 3];
-    return _controller.setPlayMode(next);
+  @override
+  void pause() {
+    _audioPlayer.pause();
   }
 
   @override
-  PlayerControllerState get value => _controller.value;
-
-  @override
-  void addListener(VoidCallback listener) {
-    _controller.addListener(listener);
+  void play(a.MediaItem item) {
+    //FIXME dynamic load from api
+    _audioPlayer.play("http://music.163.com/song/media/outer/url?id=${item.id}.mp3");
   }
 
   @override
-  void removeListener(VoidCallback listener) {
-    _controller.removeListener(listener);
+  void setPlayList(List<a.MediaItem> list) {
+    items.clear();
+    items.addAll(list);
+    a.AudioServiceBackground.notifyChildrenChanged();
+    a.AudioServiceBackground.setQueue(list);
   }
 
   @override
-  void dispose() => _controller.dispose();
-
-  @override
-  bool get hasListeners => _controller.hasListeners;
-
-  @override
-  void notifyListeners() {
-    _controller.notifyListeners();
+  void setPlayMode(PlayMode playMode) {
+    this.playMode = playMode;
   }
 
   @override
-  set value(PlayerControllerState newValue) => throw "Unsupported operation";
+  void skipToNext() {
+    final next = getNext(_current);
+    play(next);
+  }
+
+  @override
+  void skipToPrevious() {
+    final previous = getPrevious(_current);
+    play(previous);
+  }
+
+  @override
+  void quiet() {
+    // TODO: implement quiet
+  }
 }
 
 class Quiet extends StatefulWidget {
-  Quiet({@Required() this.child, Key key}) : super(key: key);
+  Quiet({@required this.child, Key key}) : super(key: key);
 
   final Widget child;
 
@@ -227,16 +300,16 @@ class Quiet extends StatefulWidget {
 }
 
 class _QuietState extends State<Quiet> {
+  final PlayerController quiet = PlayerController();
+
   PlayerControllerState value;
 
   void _onPlayerChange() {
     setState(() {
       value = quiet.value;
       if (value.hasError) {
-        showSimpleNotification(
-            context, Text("播放歌曲${value.current?.title ?? ""}失败!"),
-            leading: Icon(Icons.error),
-            background: Theme.of(context).errorColor);
+        showSimpleNotification(context, Text("播放歌曲${value.current?.title ?? ""}失败!"),
+            leading: Icon(Icons.error), background: Theme.of(context).errorColor);
       }
     });
   }
@@ -245,6 +318,7 @@ class _QuietState extends State<Quiet> {
   void initState() {
     value = quiet.value;
     quiet.addListener(_onPlayerChange);
+    _playingLyric.attachPlayer(quiet);
     super.initState();
   }
 
@@ -254,23 +328,25 @@ class _QuietState extends State<Quiet> {
     quiet.removeListener(_onPlayerChange);
   }
 
-  final _playingLyric = PlayingLyric(quiet);
+  final _playingLyric = PlayingLyric();
 
   @override
   Widget build(BuildContext context) {
-    return ScopedModel(
-      model: _playingLyric,
-      child: PlayerState(
-        child: widget.child,
-        value: value,
+    return ScopedModel<PlayerController>(
+      model: quiet,
+      child: ScopedModel(
+        model: _playingLyric,
+        child: PlayerState(
+          child: widget.child,
+          value: value,
+        ),
       ),
     );
   }
 }
 
 class PlayerState extends InheritedModel<PlayerStateAspect> {
-  PlayerState({@required Widget child, @required this.value})
-      : super(child: child);
+  PlayerState({@required Widget child, @required this.value}) : super(child: child);
 
   ///get current playing music
   final PlayerControllerState value;
@@ -285,28 +361,22 @@ class PlayerState extends InheritedModel<PlayerStateAspect> {
   }
 
   @override
-  bool updateShouldNotifyDependent(
-      PlayerState oldWidget, Set<PlayerStateAspect> dependencies) {
-    if (dependencies.contains(PlayerStateAspect.position) &&
-        (value.position != oldWidget.value.position)) {
+  bool updateShouldNotifyDependent(PlayerState oldWidget, Set<PlayerStateAspect> dependencies) {
+    if (dependencies.contains(PlayerStateAspect.position) && (value.position != oldWidget.value.position)) {
       return true;
     }
     if (dependencies.contains(PlayerStateAspect.playbackState) &&
         ((value.playbackState != oldWidget.value.playbackState) ||
-            (value.playWhenReady != oldWidget.value.playWhenReady ||
-                value.hasError != oldWidget.value.hasError))) {
+            (value.playWhenReady != oldWidget.value.playWhenReady || value.hasError != oldWidget.value.hasError))) {
       return true;
     }
-    if (dependencies.contains(PlayerStateAspect.playlist) &&
-        (value.playingList != oldWidget.value.playingList)) {
+    if (dependencies.contains(PlayerStateAspect.playlist) && (value.playingList != oldWidget.value.playingList)) {
       return true;
     }
-    if (dependencies.contains(PlayerStateAspect.music) &&
-        (value.current != oldWidget.value.current)) {
+    if (dependencies.contains(PlayerStateAspect.music) && (value.current != oldWidget.value.current)) {
       return true;
     }
-    if (dependencies.contains(PlayerStateAspect.playMode) &&
-        (value.playMode) != oldWidget.value.playMode) {
+    if (dependencies.contains(PlayerStateAspect.playMode) && (value.playMode) != oldWidget.value.playMode) {
       return true;
     }
     return false;

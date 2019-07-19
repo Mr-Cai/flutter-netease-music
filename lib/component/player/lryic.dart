@@ -7,15 +7,14 @@ import 'package:scoped_model/scoped_model.dart';
 
 ///当前播放中的音乐的歌词
 class PlayingLyric extends Model {
-  PlayingLyric(MusicPlayer player) {
+  void attachPlayer(PlayerController player) {
     player.addListener(() {
       _shouldLoadLyric(player.value.current);
     });
   }
 
   static PlayingLyric of(BuildContext context, {rebuildOnChange: true}) {
-    return ScopedModel.of<PlayingLyric>(context,
-        rebuildOnChange: rebuildOnChange);
+    return ScopedModel.of<PlayingLyric>(context, rebuildOnChange: rebuildOnChange);
   }
 
   CancelableOperation _lyricLoader;
@@ -44,8 +43,7 @@ class PlayingLyric extends Model {
       _setLyric();
       return;
     }
-    _lyricLoader = CancelableOperation<String>.fromFuture(
-        neteaseRepository.lyric(music.id))
+    _lyricLoader = CancelableOperation<String>.fromFuture(neteaseRepository.lyric(music.id))
       ..value.then((lyric) {
         _setLyric(lyric: lyric);
       }, onError: (e) {

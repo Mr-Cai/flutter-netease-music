@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:quiet/component/utils/utils.dart';
 import 'package:quiet/part/part.dart';
-import 'package:quiet/service/channel_media_player.dart';
 
 ///a seek bar for current position
 class DurationProgressBar extends StatefulWidget {
@@ -26,9 +25,7 @@ class DurationProgressBarState extends State<DurationProgressBar> {
 
     if (state.initialized) {
       var duration = state.duration.inMilliseconds;
-      var position = isUserTracking
-          ? trackingPosition.round()
-          : state.position.inMilliseconds;
+      var position = isUserTracking ? trackingPosition.round() : state.position.inMilliseconds;
 
       durationText = getTimeStamp(duration);
       positionText = getTimeStamp(position);
@@ -68,9 +65,10 @@ class DurationProgressBarState extends State<DurationProgressBar> {
             },
             onChangeEnd: (value) async {
               isUserTracking = false;
+              final quiet = PlayerController.of(context);
               quiet.seekTo(value.round());
               if (!quiet.value.playWhenReady) {
-                quiet.play();
+                quiet.play(null);
               }
             },
           ),

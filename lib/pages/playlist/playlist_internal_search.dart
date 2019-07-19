@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:quiet/component/player/player.dart';
+import 'package:quiet/model/model.dart';
 import 'package:quiet/model/playlist_detail.dart';
 import 'package:quiet/pages/playlist/music_list.dart';
-import 'package:quiet/part/part.dart';
 
 class PlaylistInternalSearchDelegate extends SearchDelegate {
-  PlaylistInternalSearchDelegate(this.playlist, this.theme)
-      : assert(playlist != null && playlist.musicList != null);
+  PlaylistInternalSearchDelegate(this.playlist, this.theme) : assert(playlist != null && playlist.musicList != null);
 
   final PlaylistDetail playlist;
 
@@ -22,8 +22,7 @@ class PlaylistInternalSearchDelegate extends SearchDelegate {
   ThemeData appBarTheme(BuildContext context) {
     var theme = this.theme ?? Theme.of(context);
     return theme.copyWith(
-        textTheme:
-            theme.textTheme.copyWith(title: theme.primaryTextTheme.title),
+        textTheme: theme.textTheme.copyWith(title: theme.primaryTextTheme.title),
         primaryColorBrightness: Brightness.dark);
   }
 
@@ -34,9 +33,7 @@ class PlaylistInternalSearchDelegate extends SearchDelegate {
 
   @override
   Widget buildResults(BuildContext context) {
-    return Theme(
-        data: theme,
-        child: BoxWithBottomPlayerController(buildSection(context)));
+    return Theme(data: theme, child: BoxWithBottomPlayerController(buildSection(context)));
   }
 
   @override
@@ -48,9 +45,7 @@ class PlaylistInternalSearchDelegate extends SearchDelegate {
     if (query.isEmpty) {
       return Container();
     }
-    var result = list
-        ?.where((m) => m.title.contains(query) || m.subTitle.contains(query))
-        ?.toList();
+    var result = list?.where((m) => m.title.contains(query) || m.subTitle.contains(query))?.toList();
     if (result == null || result.isEmpty) {
       return _EmptyResultSection(query);
     }
@@ -85,7 +80,7 @@ class _InternalResultSection extends StatelessWidget {
     return MusicList(
       musics: musics,
       onMusicTap: (_, music) {
-        quiet.play(music: music);
+        PlayerController.control(context).play(music);
       },
       trailingBuilder: MusicList.defaultTrailingBuilder,
       child: ListView.builder(

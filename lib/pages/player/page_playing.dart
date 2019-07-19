@@ -3,14 +3,16 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:quiet/component/netease/netease.dart';
+import 'package:quiet/component/player/player.dart';
+import 'package:quiet/component/player/player_state.dart';
 import 'package:quiet/component/utils/utils.dart';
 import 'package:quiet/material/playing_indicator.dart';
+import 'package:quiet/model/model.dart';
 import 'package:quiet/pages/artists/page_artist_detail.dart';
 import 'package:quiet/pages/comments/page_comment.dart';
 import 'package:quiet/pages/page_playing_list.dart';
 import 'package:quiet/part/part.dart';
 import 'package:quiet/repository/netease.dart';
-import 'package:quiet/service/channel_media_player.dart';
 
 import 'cover.dart';
 import 'lyric.dart';
@@ -32,6 +34,8 @@ class _PlayingPageState extends State<PlayingPage> {
     _music = quiet.value.current;
     quiet.addListener(_onPlayerStateChanged);
   }
+
+  PlayerController get quiet => PlayerController.of(context);
 
   void _onPlayerStateChanged() {
     if (_music != quiet.value.current) {
@@ -79,7 +83,7 @@ class _PlayingPageState extends State<PlayingPage> {
 /// pause,play,play next,play previous...
 class _ControllerBar extends StatelessWidget {
   Widget getPlayModeIcon(context, Color color) {
-    var playMode = PlayerState.of(context, aspect: PlayerStateAspect.playMode).value.playMode;
+    var playMode = PlayerController.state(context).playMode;
     switch (playMode) {
       case PlayMode.single:
         return Icon(
@@ -104,6 +108,8 @@ class _ControllerBar extends StatelessWidget {
   Widget build(BuildContext context) {
     var color = Theme.of(context).primaryIconTheme.color;
 
+    final quiet = PlayerController.of(context);
+
     final iconPlayPause = PlayingIndicator(
       playing: IconButton(
           tooltip: "暂停",
@@ -123,7 +129,7 @@ class _ControllerBar extends StatelessWidget {
             color: color,
           ),
           onPressed: () {
-            quiet.play();
+            quiet.play(null);
           }),
       buffering: Container(
         height: 56,
@@ -142,7 +148,8 @@ class _ControllerBar extends StatelessWidget {
           IconButton(
               icon: getPlayModeIcon(context, color),
               onPressed: () {
-                quiet.changePlayMode();
+                final next = quiet.value.playMode.index + 1 % 3;
+                quiet.setPlayMode(PlayMode.values[next]);
               }),
           IconButton(
               iconSize: 36,
@@ -151,7 +158,7 @@ class _ControllerBar extends StatelessWidget {
                 color: color,
               ),
               onPressed: () {
-                quiet.playPrevious();
+                quiet.skipToPrevious();
               }),
           iconPlayPause,
           IconButton(
@@ -162,7 +169,7 @@ class _ControllerBar extends StatelessWidget {
                 color: color,
               ),
               onPressed: () {
-                quiet.playNext();
+                quiet.skipToNext();
               }),
           IconButton(
               tooltip: "当前播放列表",
@@ -197,7 +204,7 @@ class _DurationProgressBarState extends State<_DurationProgressBar> {
   @override
   Widget build(BuildContext context) {
     var theme = Theme.of(context).primaryTextTheme;
-    var state = PlayerState.of(context).value;
+    var state = PlayerController.state(context);
 
     Widget progressIndicator;
 
@@ -246,9 +253,10 @@ class _DurationProgressBarState extends State<_DurationProgressBar> {
             },
             onChangeEnd: (value) async {
               isUserTracking = false;
+              final quiet = PlayerController.of(context);
               quiet.seekTo(value.round());
               if (!quiet.value.playWhenReady) {
-                quiet.play();
+                quiet.play(null);
               }
             },
           ),
@@ -281,7 +289,7 @@ class _OperationBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final iconColor = Theme.of(context).primaryIconTheme.color;
 
-    final music = quiet.value.current;
+    final music = PlayerController.state(context).current;
     final liked = LikedSongList.contain(context, music);
 
     return Row(
@@ -402,6 +410,8 @@ class _CloudLyric extends StatefulWidget {
 
 class _CloudLyricState extends State<_CloudLyric> {
   ValueNotifier<int> position = ValueNotifier(0);
+
+  PlayerController get quiet => PlayerController.of(context);
 
   @override
   void initState() {

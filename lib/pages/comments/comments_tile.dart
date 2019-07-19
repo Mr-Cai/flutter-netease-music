@@ -25,7 +25,7 @@ class _ItemTitle extends StatelessWidget {
               }));
             } else if (commentThreadId.type == CommentType.song) {
               Music music = payload.obj;
-              if (quiet.value.current != music) {
+              if (PlayerController.state(context, rebuildOnChange: false).current != music) {
                 dynamic result = await showDialog(
                     context: context,
                     builder: (context) {
@@ -48,7 +48,7 @@ class _ItemTitle extends StatelessWidget {
                 if (!(result is bool && result)) {
                   return;
                 }
-                await quiet.play(music: music);
+                PlayerControl.of(context).play(music);
               }
               Navigator.push(context, MaterialPageRoute(builder: (context) {
                 return PlayingPage();
@@ -185,8 +185,7 @@ class _ItemCommentState extends State<_ItemComment> {
                   ListTile(
                     title: Text("复制"),
                     onTap: () {
-                      Clipboard.setData(
-                          ClipboardData(text: widget.comment.content));
+                      Clipboard.setData(ClipboardData(text: widget.comment.content));
                       Navigator.pop(context);
                       toast(this.context, '复制成功');
                     },
@@ -212,10 +211,7 @@ class _ItemCommentState extends State<_ItemComment> {
                       child: InkResponse(
                     onTap: () {
                       Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                              builder: (context) =>
-                                  UserDetailPage(userId: user.userId)));
+                          context, MaterialPageRoute(builder: (context) => UserDetailPage(userId: user.userId)));
                     },
                     child: Image(
                       image: CachedImage(user.avatarUrl),
@@ -256,9 +252,7 @@ class _ItemCommentState extends State<_ItemComment> {
                         child: Icon(
                           Icons.thumb_up,
                           size: 15,
-                          color: widget.comment.liked
-                              ? Theme.of(context).accentColor
-                              : Theme.of(context).disabledColor,
+                          color: widget.comment.liked ? Theme.of(context).accentColor : Theme.of(context).disabledColor,
                         ),
                       )
                     ],

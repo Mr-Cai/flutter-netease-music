@@ -51,11 +51,7 @@ class BottomControllerBar extends StatelessWidget {
     }
     final line = playingLyric.lyric
         .getLineByTimeStamp(
-            PlayerState.of(context, aspect: PlayerStateAspect.position)
-                .value
-                .position
-                .inMilliseconds,
-            0)
+            PlayerState.of(context, aspect: PlayerStateAspect.position).value.position.inMilliseconds, 0)
         ?.line;
     if (line == null || line.isEmpty) {
       return Text(music.subTitle);
@@ -65,8 +61,7 @@ class BottomControllerBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    var music =
-        PlayerState.of(context, aspect: PlayerStateAspect.music).value.current;
+    var music = PlayerState.of(context, aspect: PlayerStateAspect.music).value.current;
     if (music == null) {
       return Container();
     }
@@ -79,9 +74,8 @@ class BottomControllerBar extends StatelessWidget {
       child: Card(
         margin: const EdgeInsets.all(0),
         shape: const RoundedRectangleBorder(
-            borderRadius: const BorderRadius.only(
-                topLeft: const Radius.circular(4.0),
-                topRight: const Radius.circular(4.0))),
+            borderRadius:
+                const BorderRadius.only(topLeft: const Radius.circular(4.0), topRight: const Radius.circular(4.0))),
         child: Container(
           height: 56,
           child: Row(
@@ -154,12 +148,12 @@ class _PauseButton extends StatelessWidget {
       playing: IconButton(
           icon: Icon(Icons.pause),
           onPressed: () {
-            quiet.pause();
+            PlayerControl.of(context).pause();
           }),
       pausing: IconButton(
           icon: Icon(Icons.play_arrow),
           onPressed: () {
-            quiet.play();
+            PlayerControl.of(context).play(null);
           }),
       buffering: Container(
         height: 24,

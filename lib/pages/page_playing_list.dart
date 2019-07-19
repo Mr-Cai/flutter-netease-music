@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:overlay_support/overlay_support.dart';
+import 'package:quiet/component/player/player.dart';
+import 'package:quiet/component/player/player_state.dart';
+import 'package:quiet/model/model.dart';
 import 'package:quiet/pages/playlist/dialog_selector.dart';
-import 'package:quiet/part/part.dart';
-import 'package:quiet/service/channel_media_player.dart';
 
 class PlayingListDialog extends StatefulWidget {
   @override
@@ -17,8 +18,9 @@ class PlayingListDialogState extends State<PlayingListDialog> {
   @override
   void initState() {
     super.initState();
-    final playingList = quiet.value.playingList;
-    final music = quiet.value.current;
+    final state = PlayerController.state(context);
+    final playingList = state.playingList;
+    final music = state.current;
     assert(music != null, '展示播放列表时，当前音乐不能为空！');
     double offset = playingList.indexOf(music) * _HEIGHT_MUSIC_TILE;
     _controller = ScrollController(initialScrollOffset: offset);
@@ -26,12 +28,8 @@ class PlayingListDialogState extends State<PlayingListDialog> {
 
   @override
   Widget build(BuildContext context) {
-    List<Music> playingList =
-        PlayerState.of(context, aspect: PlayerStateAspect.playlist)
-            .value
-            .playingList;
-    Music music =
-        PlayerState.of(context, aspect: PlayerStateAspect.music).value.current;
+    List<Music> playingList = PlayerState.of(context, aspect: PlayerStateAspect.playlist).value.playingList;
+    Music music = PlayerState.of(context, aspect: PlayerStateAspect.music).value.current;
 
     return Container(
       height: MediaQuery.of(context).size.height / 2,
@@ -61,9 +59,9 @@ class _Header extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final state = PlayerState.of(context, aspect: PlayerStateAspect.playMode);
-    final playMode = state.value.playMode;
-    final count = state.value.playingList.length;
+    final state = PlayerController.state(context);
+    final playMode = state.playMode;
+    final count = state.playingList.length;
     IconData icon;
     String name;
     switch (playMode) {
@@ -88,19 +86,20 @@ class _Header extends StatelessWidget {
           children: <Widget>[
             FlatButton.icon(
                 onPressed: () {
-                  quiet.changePlayMode();
+                  PlayMode next = PlayMode.values[(playMode.index + 1) % 3];
+                  PlayerControl.of(context).setPlayMode(next);
                 },
                 icon: Icon(icon),
                 label: Text("$name($count)")),
             Spacer(),
             FlatButton.icon(
                 onPressed: () async {
-                  final ids = quiet.value.playingList.map((m) => m.id).toList();
+                  final ids =
+                      PlayerController.state(context, rebuildOnChange: false).playingList.map((m) => m.id).toList();
                   if (ids.isEmpty) {
                     return;
                   }
-                  final succeed =
-                      await PlaylistSelectorDialog.addSongs(context, ids);
+                  final succeed = await PlaylistSelectorDialog.addSongs(context, ids);
                   if (succeed == null) {
                     return;
                   }
@@ -108,8 +107,7 @@ class _Header extends StatelessWidget {
                     showSimpleNotification(context, Text("添加到收藏成功"));
                   } else {
                     showSimpleNotification(context, Text("添加到收藏失败"),
-                        leading: Icon(Icons.error),
-                        background: Theme.of(context).errorColor);
+                        leading: Icon(Icons.error), background: Theme.of(context).errorColor);
                   }
                 },
                 icon: Icon(Icons.add_box),
@@ -118,7 +116,7 @@ class _Header extends StatelessWidget {
                 icon: Icon(Icons.delete_outline),
                 onPressed: () async {
                   Navigator.pop(context);
-                  quiet.quiet();
+                  PlayerControl.of(context).quiet();
                 })
           ],
         ),
@@ -160,15 +158,13 @@ class _MusicTile extends StatelessWidget {
     }
     return InkWell(
       onTap: () {
-        quiet.play(music: music);
+        PlayerControl.of(context).play(music);
       },
       child: Container(
         padding: EdgeInsets.only(left: 8),
         height: _HEIGHT_MUSIC_TILE,
-        decoration: BoxDecoration(
-            border: Border(
-                bottom: BorderSide(
-                    color: Theme.of(context).dividerColor, width: 0.3))),
+        decoration:
+            BoxDecoration(border: Border(bottom: BorderSide(color: Theme.of(context).dividerColor, width: 0.3))),
         child: Row(
           children: <Widget>[
             leading,
@@ -186,7 +182,8 @@ class _MusicTile extends StatelessWidget {
             IconButton(
                 icon: Icon(Icons.close),
                 onPressed: () {
-                  quiet.removeFromPlayingList(music);
+                  //TODO Remove from playing list
+                  toast(context, "TODO");
                 })
           ],
         ),

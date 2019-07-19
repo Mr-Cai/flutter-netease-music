@@ -27,8 +27,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return ScopedModel<Settings>(
       model: setting,
-      child:
-          ScopedModelDescendant<Settings>(builder: (context, child, setting) {
+      child: ScopedModelDescendant<Settings>(builder: (context, child, setting) {
         return Netease(
           child: Quiet(
             child: CopyRightOverlay(

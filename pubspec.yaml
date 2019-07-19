@@ -32,7 +32,9 @@ dependencies:
   netease_music_api:
     git:
       url: git://github.com/ziming1/NeteaseCloudMusicApi.git
-
+  audio_service: ^0.3.0
+  audioplayers: ^0.13.1
+  
 dev_dependencies:
   flutter_test:
     sdk: flutter
